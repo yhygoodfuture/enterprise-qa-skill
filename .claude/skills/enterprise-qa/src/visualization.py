@@ -118,6 +118,26 @@ class ASCIIGraph:
         return "\n".join(lines)
 
     @staticmethod
+    def _display_width(s: str) -> int:
+        """计算字符串的显示宽度（中文字符计为2）"""
+        import re
+        width = 0
+        for char in s:
+            if re.match(r'[\u4e00-\u9fa5]', char):  # 中文
+                width += 2
+            else:
+                width += 1
+        return width
+
+    @staticmethod
+    def _pad_to_width(s: str, width: int) -> str:
+        """将字符串填充到指定显示宽度"""
+        import re
+        current_width = ASCIIGraph._display_width(s)
+        padding = width - current_width
+        return s + " " * padding
+
+    @staticmethod
     def table(
         headers: List[str],
         rows: List[List[str]],
@@ -131,7 +151,7 @@ class ASCIIGraph:
             headers: 表头
             rows: 数据行
             title: 表格标题
-            max_col_width: 最大列宽
+            max_col_width: 最大列宽（按英文字符计）
 
         Returns:
             ASCII 表格字符串
@@ -141,22 +161,26 @@ class ASCIIGraph:
 
         lines = []
 
-        # 计算每列宽度
-        col_widths = [len(h) for h in headers]
+        # 计算每列显示宽度
+        col_widths = [ASCIIGraph._display_width(h) for h in headers]
         for row in rows:
             for i, cell in enumerate(row):
                 if i < len(col_widths):
-                    col_widths[i] = min(max(col_widths[i], len(str(cell))), max_col_width)
+                    cell_width = ASCIIGraph._display_width(str(cell))
+                    col_widths[i] = min(max(col_widths[i], cell_width), max_col_width * 2)  # 中英文混合时放大
 
         # 表头
         if title:
             lines.append(f"【{title}】")
             lines.append("")
 
-        header_line = "  " + " │ ".join(
-            h[:col_widths[i]].center(col_widths[i]) if i < len(col_widths) else h.center(10)
-            for i, h in enumerate(headers)
-        )
+        header_cells = []
+        for i, h in enumerate(headers):
+            if i < len(col_widths):
+                header_cells.append(ASCIIGraph._pad_to_width(h, col_widths[i]))
+            else:
+                header_cells.append(h)
+        header_line = "  " + " │ ".join(header_cells)
         lines.append(header_line)
 
         # 分隔线
@@ -167,8 +191,24 @@ class ASCIIGraph:
         for row in rows:
             row_cells = []
             for i, cell in enumerate(row):
-                cell_str = str(cell)[:col_widths[i]] if i < len(col_widths) else str(cell)[:10]
-                row_cells.append(cell_str.ljust(col_widths[i]) if i < len(col_widths) else cell_str.ljust(10))
+                cell_str = str(cell)
+                if i < len(col_widths):
+                    # 截断处理（按显示宽度）
+                    display_w = ASCIIGraph._display_width(cell_str)
+                    if display_w > col_widths[i]:
+                        # 截断到最大宽度
+                        new_str = ""
+                        w = 0
+                        for c in cell_str:
+                            cw = 2 if re.match(r'[\u4e00-\u9fa5]', c) else 1
+                            if w + cw > col_widths[i]:
+                                break
+                            new_str += c
+                            w += cw
+                        cell_str = new_str
+                    row_cells.append(ASCIIGraph._pad_to_width(cell_str, col_widths[i]))
+                else:
+                    row_cells.append(cell_str)
             lines.append("  " + " │ ".join(row_cells))
 
         return "\n".join(lines)
@@ -298,19 +338,22 @@ class StatusBadge:
 
 
 def visualize_department_stats(data: Dict[str, Any]) -> str:
-    """可视化部门统计"""
+    """可视化部门统计（使用 matplotlib 生成图片）"""
     if "employees" in data and isinstance(data["employees"], list):
         names = data["employees"]
         dept = data.get("department", "未知")
 
-        graph = ASCIIGraph()
-        chart = graph.bar_chart(
-            {name: 1 for name in names},
+        # 使用 matplotlib 生成图片
+        output_path = f"./charts/{dept}_members.png"
+        chart_path = MatplotlibChart.bar_chart(
+            data={name: 1 for name in names},
             title=f"{dept} 成员分布",
-            show_values=False
+            output_path=output_path,
+            show_values=False,
+            horizontal=True
         )
 
-        return f"{chart}\n\n共 {len(names)} 人"
+        return f"![{dept}成员分布]({chart_path})\n\n共 {len(names)} 人"
     return "无数据"
 
 
@@ -360,13 +403,11 @@ def visualize_project_status(projects: List[Dict[str, Any]]) -> str:
     chart = graph.pie_chart(display_counts, title="项目状态分布")
 
     # 详细列表
-    headers = ["项目名", "状态", "角色"]
+    headers = ["项目名", "状态"]
     rows = []
     for p in projects[:10]:  # 最多显示 10 个
         status = status_map.get(p.get("status", ""), p.get("status", ""))
-        role_map = {"lead": "负责人", "core": "核心", "contributor": "贡献者"}
-        role = role_map.get(p.get("role", ""), p.get("role", ""))
-        rows.append([p.get("name", "")[:15], status, role])
+        rows.append([p.get("name", "")[:15], status])
 
     table = graph.table(headers, rows, title="项目列表")
 

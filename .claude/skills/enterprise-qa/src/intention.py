@@ -9,12 +9,16 @@
 """
 
 import re
+import sys
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
 from .database import DatabaseQuery, QueryType
 from .knowledge import KnowledgeBase
+
+# 调试日志开关
+DEBUG_INTENT = True
 
 
 class QueryIntent(Enum):
@@ -78,8 +82,16 @@ class IntentRecognizer:
         query = query.strip()
         original = query
 
+        # 调试日志
+        def debug(msg):
+            if DEBUG_INTENT:
+                print(f"[DEBUG] 意图识别: {msg}", file=sys.stderr)
+
+        debug(f"原始查询: {query}")
+
         # 1. 检查是否是SQL注入
         if self._is_sql_injection(query):
+            debug("检测到SQL注入模式，返回UNKNOWN")
             return ParsedQuery(
                 intent=QueryIntent.UNKNOWN,
                 query_type=QueryType.UNKNOWN,
@@ -91,16 +103,19 @@ class IntentRecognizer:
 
         # 2. 提取命名实体
         entities = self._extract_entities(query)
+        debug(f"提取实体: {entities}")
 
         # 3. 判断查询类型
         db_keywords_hit = self._count_keywords(query, self.DB_KEYWORDS)
         kb_keywords_hit = self._count_keywords(query, self.KB_KEYWORDS)
+        debug(f"DB关键词命中: {db_keywords_hit}, KB关键词命中: {kb_keywords_hit}")
 
         # 4. 特殊情况判断
 
         # 晋升条件检查 - 混合查询
         if any(kw in query for kw in ['符合', '条件', '可以晋升', '能晋升']) and \
            any(lv in query for lv in ['p4', 'p5', 'p6', 'p7', 'p8', '晋升']):
+            debug("决策: 晋升条件检查 -> MIXED")
             return ParsedQuery(
                 intent=QueryIntent.MIXED,
                 query_type=QueryType.PROMOTION_CHECK,
@@ -112,6 +127,7 @@ class IntentRecognizer:
 
         # 晋升查询（仅有"晋升"关键词，无具体职级）- 混合查询
         if any(kw in query for kw in ['晋升', '升职']) and 'names' in entities:
+            debug("决策: 晋升查询 -> MIXED")
             return ParsedQuery(
                 intent=QueryIntent.MIXED,
                 query_type=QueryType.PROMOTION_CHECK,
@@ -123,6 +139,7 @@ class IntentRecognizer:
 
         # 员工信息查询 - 数据库
         if any(kw in query for kw in ['部门', '邮箱', '上级', '职级', '级别', '入职']):
+            debug("决策: 员工信息查询 -> DB_ONLY")
             return ParsedQuery(
                 intent=QueryIntent.DB_ONLY,
                 query_type=QueryType.EMPLOYEE_INFO,
@@ -134,6 +151,7 @@ class IntentRecognizer:
 
         # 项目查询 - 数据库
         if any(kw in query for kw in ['项目', '参与', '负责', 'lead', 'core', 'contributor']):
+            debug("决策: 项目查询 -> DB_ONLY")
             return ParsedQuery(
                 intent=QueryIntent.DB_ONLY,
                 query_type=QueryType.EMPLOYEE_PROJECTS,
@@ -149,6 +167,7 @@ class IntentRecognizer:
             if 'names' not in entities and 'employee_ids' not in entities:
                 # 检查是否问的是政策/规则
                 if any(kw in query for kw in ['怎么', '如何', '规则', '制度', '标准', '扣钱', '扣款', '开始', '几次', '多少']):
+                    debug("决策: 考勤政策查询 -> KB_ONLY")
                     return ParsedQuery(
                         intent=QueryIntent.KB_ONLY,
                         query_type=QueryType.UNKNOWN,
@@ -158,6 +177,7 @@ class IntentRecognizer:
                         original_query=original
                     )
             # 有员工姓名，按数据库查询处理
+            debug("决策: 员工考勤查询 -> DB_ONLY")
             return ParsedQuery(
                 intent=QueryIntent.DB_ONLY,
                 query_type=QueryType.EMPLOYEE_ATTENDANCE,
@@ -169,6 +189,7 @@ class IntentRecognizer:
 
         # 绩效查询 - 数据库
         if any(kw in query for kw in ['绩效', 'kpi', '考核', '评分', '评级']):
+            debug("决策: 绩效查询 -> DB_ONLY")
             return ParsedQuery(
                 intent=QueryIntent.DB_ONLY,
                 query_type=QueryType.EMPLOYEE_PERFORMANCE,
@@ -180,6 +201,7 @@ class IntentRecognizer:
 
         # 制度/政策查询 - 知识库
         if any(kw in query for kw in ['怎么算', '如何', '规则', '制度', '规定', '报销', '标准', '迟到扣钱', '扣款']):
+            debug("决策: 制度政策查询 -> KB_ONLY")
             return ParsedQuery(
                 intent=QueryIntent.KB_ONLY,
                 query_type=QueryType.UNKNOWN,
@@ -191,6 +213,7 @@ class IntentRecognizer:
 
         # 会议纪要查询 - 知识库
         if any(kw in query for kw in ['会议', '大会', '纪要', '说了什么', '讲了', '全员']):
+            debug("决策: 会议纪要查询 -> KB_ONLY")
             return ParsedQuery(
                 intent=QueryIntent.KB_ONLY,
                 query_type=QueryType.UNKNOWN,
@@ -202,6 +225,7 @@ class IntentRecognizer:
 
         # 模糊查询（如"有什么事"）- 知识库
         if any(kw in query for kw in ['事', '最近', '有什么', '事项']):
+            debug("决策: 模糊查询 -> KB_ONLY")
             return ParsedQuery(
                 intent=QueryIntent.KB_ONLY,
                 query_type=QueryType.UNKNOWN,
@@ -213,6 +237,7 @@ class IntentRecognizer:
 
         # 根据关键词数量判断
         if db_keywords_hit > kb_keywords_hit:
+            debug(f"决策: DB关键词命中更多({db_keywords_hit}>{kb_keywords_hit}) -> DB_ONLY")
             return ParsedQuery(
                 intent=QueryIntent.DB_ONLY,
                 query_type=QueryType.EMPLOYEE_INFO,
@@ -222,6 +247,7 @@ class IntentRecognizer:
                 original_query=original
             )
         elif kb_keywords_hit > db_keywords_hit:
+            debug(f"决策: KB关键词命中更多({kb_keywords_hit}>{db_keywords_hit}) -> KB_ONLY")
             return ParsedQuery(
                 intent=QueryIntent.KB_ONLY,
                 query_type=QueryType.UNKNOWN,
@@ -231,7 +257,7 @@ class IntentRecognizer:
                 original_query=original
             )
         else:
-            # 无法判断，默认尝试数据库
+            debug("决策: 无法判断，默认 -> DB_ONLY")
             return ParsedQuery(
                 intent=QueryIntent.DB_ONLY,
                 query_type=QueryType.EMPLOYEE_INFO,

@@ -38,11 +38,17 @@ class Logger:
             # 控制台 handler
             console_handler = logging.StreamHandler(sys.stdout)
             console_handler.setLevel(logging.INFO)
-            console_formatter = logging.Formatter(
+            console_handler.setFormatter(logging.Formatter(
                 '%(asctime)s [%(levelname)s] %(message)s',
                 datefmt='%H:%M:%S'
-            )
-            console_handler.setFormatter(console_formatter)
+            ))
+            # Windows 下强制 UTF-8 输出
+            if sys.platform == 'win32':
+                try:
+                    import io
+                    console_handler.stream = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+                except Exception:
+                    pass
             self.logger.addHandler(console_handler)
 
             # 文件 handler（如果指定了目录）

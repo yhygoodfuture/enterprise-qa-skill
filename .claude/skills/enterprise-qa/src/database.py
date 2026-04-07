@@ -760,3 +760,61 @@ class DatabaseQuery:
                 message=f"查询出错：{str(e)}",
                 source="projects 表"
             )
+
+    def get_projects_by_status(self, status: str) -> QueryResult:
+        """
+        按状态查询项目
+
+        Args:
+            status: 项目状态 (active/planning/completed/on_hold)
+
+        Returns:
+            QueryResult with filtered projects
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+
+        # 状态中文映射
+        status_map = {
+            "进行中": "active",
+            "计划中": "planning",
+            "已完成": "completed",
+            "已暂停": "on_hold"
+        }
+
+        db_status = status_map.get(status, status)
+
+        try:
+            cursor.execute(
+                """
+                SELECT p.project_id, p.name, p.status, p.start_date, p.end_date, e.name as lead_name
+                FROM projects p
+                LEFT JOIN employees e ON p.lead_id = e.employee_id
+                WHERE p.status = ?
+                ORDER BY p.start_date DESC
+                """,
+                (db_status,)
+            )
+            rows = cursor.fetchall()
+
+            if not rows:
+                return QueryResult(
+                    success=False,
+                    message=f"目前没有{status}的项目。",
+                    source="projects 表"
+                )
+
+            data = [dict(row) for row in rows]
+            return QueryResult(
+                success=True,
+                data=data,
+                message=f"{status}的项目共 {len(data)} 个：",
+                source="projects 表"
+            )
+
+        except sqlite3.Error as e:
+            return QueryResult(
+                success=False,
+                message=f"查询出错：{str(e)}",
+                source="projects 表"
+            )

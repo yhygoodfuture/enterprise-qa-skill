@@ -367,6 +367,41 @@ class KnowledgeBase:
 
         return None
 
+    def get_finance_policy(self, policy_type: str) -> Optional[KnowledgeResult]:
+        """
+        获取财务制度
+
+        Args:
+            policy_type: 制度类型 (如 "差旅费", "报销标准", "业务招待")
+
+        Returns:
+            KnowledgeResult with policy content or None
+        """
+        # 查找财务制度文档
+        finance_file = None
+        for path, info in self._index.items():
+            if 'finance' in path.lower() or '财务' in info.get('title', ''):
+                finance_file = info
+                break
+
+        if not finance_file:
+            return None
+
+        # 在finance_rules中查找相关章节
+        for section_title, section_content in finance_file['sections'].items():
+            if policy_type in section_title or policy_type in section_content:
+                return KnowledgeResult(
+                    success=True,
+                    content=section_content,
+                    source=finance_file['title'],
+                    file_path=finance_file['relative_path'],
+                    relevance_score=1.0,
+                    message=f"找到「{policy_type}」相关制度",
+                    section=section_title
+                )
+
+        return None
+
     def get_meeting_notes(self, keyword: str = "") -> List[KnowledgeResult]:
         """
         获取会议纪要

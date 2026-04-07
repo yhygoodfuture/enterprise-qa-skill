@@ -6,6 +6,11 @@
 
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from datetime import datetime
+import re
+import sys
+
+# 调试日志开关
+DEBUG_ANSWER = True
 
 from .database import DatabaseQuery, QueryResult, QueryType
 from .knowledge import KnowledgeBase, KnowledgeResult
@@ -59,6 +64,10 @@ class AnswerGenerator:
         Returns:
             格式化的答案字符串
         """
+        def debug(msg):
+            if DEBUG_ANSWER:
+                print(f"[DEBUG] 答案生成: {msg}", file=sys.stderr)
+
         # 0. 代词解析：如果 query 包含代词且上下文有 last_name，则替换
         original_query = query
         if self.context and self.context.last_entity.get('last_name'):
@@ -67,6 +76,7 @@ class AnswerGenerator:
             pronouns = ['他', '她', '它']
             for pronoun in pronouns:
                 if pronoun in query:
+                    debug(f"代词替换: {pronoun} -> {last_name}")
                     query = query.replace(pronoun, last_name)
                     break
 
@@ -74,8 +84,11 @@ class AnswerGenerator:
         parsed = self.intent_recognizer.recognize(query)
         self.last_intent = parsed.intent.value
 
+        debug(f"选择处理器: {parsed.intent.value}")
+
         # 2. 处理错误情况
         if "error" in parsed.entities and parsed.entities["error"] == "sql_injection":
+            debug("SQL注入检测，拦截请求")
             return self._format_error(
                 "您的查询包含敏感字符，已被系统拦截。如需查询数据，请换一种描述方式。",
                 "security"
@@ -83,13 +96,19 @@ class AnswerGenerator:
 
         # 3. 根据意图分发查询
         if parsed.intent == QueryIntent.DB_ONLY:
+            debug("调用 _handle_db_only")
             answer = self._handle_db_only(query, parsed)
         elif parsed.intent == QueryIntent.KB_ONLY:
+            debug("调用 _handle_kb_only")
             answer = self._handle_kb_only(query, parsed)
         elif parsed.intent == QueryIntent.MIXED:
+            debug("调用 _handle_mixed")
             answer = self._handle_mixed(query, parsed)
         else:
+            debug("调用 _handle_unknown")
             answer = self._handle_unknown(query, parsed)
+
+        debug(f"生成答案长度: {len(answer)} 字符")
 
         # 4. 更新上下文
         self._update_context(query, parsed, answer)
@@ -132,7 +151,7 @@ class AnswerGenerator:
                 return self._format_error(result.message, result.source)
 
         # T06: 查询部门人数
-        if '有多少' in query:
+        if '有多少' in query or ('部门' in query and '人数' in query) or any(dept in query and '人数' in query for dept in ['研发', '产品', '市场', '管理', '财务', '人力']):
             dept = entities.get('department')
             if dept:
                 result = self.db.get_department_count(dept)
@@ -159,6 +178,28 @@ class AnswerGenerator:
             result = self.db.get_employee_attendance(name, year, month)
             if result.success:
                 return self._format_db_result(result.message, result.source)
+            else:
+                return self._format_error(result.message, result.source)
+
+        # 查询员工绩效
+        if any(kw in query for kw in ['绩效', 'kpi', '考核', '评分', '评级']) and 'names' in entities:
+            name = entities['names'][0]
+            year = entities.get('year', 2026)
+            result = self.db.get_employee_performance(name, year)
+            if result.success:
+                data = result.data
+                reviews = data.get('reviews', [])
+                if reviews:
+                    lines = [f"{name} {year}年绩效考核："]
+                    lines.append(f"平均分：{data.get('average_score', 0):.1f}")
+                    lines.append("")
+                    lines.append("| 季度 | KPI分数 | 评级 |")
+                    lines.append("|------|---------|------|")
+                    for r in reviews:
+                        lines.append(f"| {r['year']}Q{r['quarter']} | {r['kpi_score']} | {r['grade']} |")
+                    return self._format_db_result("\n".join(lines), result.source)
+                else:
+                    return self._format_error(f"未找到 {name} {year} 年的绩效考核记录。", result.source)
             else:
                 return self._format_error(result.message, result.source)
 
@@ -217,14 +258,27 @@ class AnswerGenerator:
                 # 员工不存在
                 return self._format_error(result.message, result.source)
 
-        # 在研项目查询
-        if any(kw in query for kw in ['在研', 'active', '进行中', '项目']):
-            result = self.db.get_active_projects()
+        # 在研项目查询（支持按状态筛选）
+        if any(kw in query for kw in ['在研', 'active', '项目']):
+            # 检查是否有具体状态筛选
+            status_filter = None
+            # 在研映射到进行中
+            status_map = {'进行中': '进行中', '计划中': '计划中', '已完成': '已完成', '已暂停': '已暂停', '在研': '进行中', 'active': '进行中'}
+            for status in ['进行中', '计划中', '已完成', '已暂停', '在研', 'active']:
+                if status in query:
+                    status_filter = status_map[status]
+                    break
+
+            if status_filter:
+                result = self.db.get_projects_by_status(status_filter)
+            else:
+                result = self.db.get_active_projects()
+
             if result.success:
                 projects = result.data
                 # 添加可视化
                 viz = visualize_project_status(projects)
-                lines = [f"目前在研/计划中的项目共 {len(projects)} 个："]
+                lines = [f"{result.message}"]
                 return self._format_db_result("\n".join(lines) + "\n\n" + viz, result.source)
 
         # 默认处理
@@ -238,10 +292,10 @@ class AnswerGenerator:
             if result and result.success:
                 return self._format_kb_result(
                     "根据《人事制度》，年假计算规则为：\n"
-                    "- 入职满 1 年享 5 天\n"
-                    "- 每增 1 年 +1 天\n"
-                    "- 上限 15 天\n"
-                    "- 年假有效期为自然年，未休可折算工资或结转（最多5天）",
+                    "  ● 入职满 1 年享 5 天\n"
+                    "  ● 每增 1 年 +1 天\n"
+                    "  ● 上限 15 天\n"
+                    "  ● 年假有效期为自然年，未休可折算工资或结转（最多5天）",
                     result.source,
                     result.section
                 )
@@ -250,34 +304,54 @@ class AnswerGenerator:
         if any(kw in query for kw in ['迟到', '扣钱', '扣款', '罚']):
             result = self.kb.get_hr_policy('迟到')
             if result and result.success:
-                # 针对直接问题或简短问法给出简洁回答
-                if any(kw in query for kw in ['开始', '几次', '多少', '怎么']) or len(query) < 10:
+                # 针对具体次数的问题给出具体回答
+                if '7' in query and '次' in query:
                     return self._format_kb_result(
-                        "根据《人事制度》：\n"
-                        "迟到**4-6次**，每次扣款**50元**。\n"
-                        "（3次以内不扣款，7次以上视为旷工）",
+                        "迟到 7 次视为旷工 1 天，通报批评。",
+                        result.source
+                    )
+                # 针对直接问题或简短问法给出简洁回答
+                # 但"迟到规则"等完整规则查询不适用
+                if (any(kw in query for kw in ['开始', '几次', '多少', '怎么']) or len(query) < 6) and '规则' not in query:
+                    return self._format_kb_result(
+                        "迟到 4-6 次开始扣款，50 元/次。\n"
+                        "（3 次以内不扣款，7 次以上视为旷工）",
                         result.source
                     )
                 return self._format_kb_result(
                     "根据《人事制度》迟到规则：\n"
-                    "| 月累计迟到次数 | 处理方式 |\n"
-                    "| 3次以内 | 不扣款，口头提醒 |\n"
-                    "| 4-6次 | 每次扣款50元 |\n"
-                    "| 7次以上 | 视为旷工1天，通报批评 |",
+                    "  ● 3 次以内：不扣款，口头提醒\n"
+                    "  ● 4-6 次：每次扣款 50 元\n"
+                    "  ● 7 次以上：视为旷工 1 天，通报批评",
                     result.source
                 )
 
         # 报销标准
         if any(kw in query for kw in ['报销', '差旅', '机票', '酒店', '餐补']):
-            results = self.kb.search_by_keyword('报销')
+            # 先尝试获取差旅费标准
+            result = self.kb.get_finance_policy('差旅费标准')
+            if result and result.success:
+                return self._format_kb_result(
+                    f"根据《{result.source}》差旅费标准：\n{result.content}",
+                    result.source,
+                    result.section
+                )
+
+            # 如果没有专门的差旅费标准，尝试通用的报销标准
+            result = self.kb.get_finance_policy('报销标准')
+            if result and result.success:
+                return self._format_kb_result(
+                    f"根据《{result.source}》{result.section}：\n{result.content}",
+                    result.source,
+                    result.section
+                )
+
+            # 如果还是找不到，用通用搜索
+            results = self.kb.search_by_keyword('差旅费')
             if results:
                 r = results[0]
                 return self._format_kb_result(
-                    f"根据《财务报销制度》：\n"
-                    f"- 机票：经济舱，提前7天预订\n"
-                    f"- 酒店：一线城市≤500元/天，其他≤300元/天\n"
-                    f"- 餐补：出差100元/天\n"
-                    f"- 报销流程：系统提交→主管审批→财务审核→打款（5工作日）",
+                    f"根据《{r.source}》：\n{r.content[:500]}",
                     r.source
                 )
 
@@ -319,7 +393,24 @@ class AnswerGenerator:
             if results:
                 lines = ["近期重要事项："]
                 for r in results:
-                    lines.append(f"\n{r.message}:\n{r.content[:200]}...")
+                    # 清理 markdown 格式
+                    content = r.content
+                    content = re.sub(r'\*\*(.*?)\*\*:', r'\1:', content)
+                    content = re.sub(r'\*\*(.*?)\*\*', r'\1', content)
+                    content = re.sub(r'\*(.*?)\*', r'\1', content)
+                    content = re.sub(r'^#+\s*', '', content, flags=re.MULTILINE)
+                    # 清理表格行
+                    def clean_table_line(line):
+                        if '|' in line:
+                            cells = [c.strip() for c in line.split('|') if c.strip()]
+                            return '  '.join(cells)
+                        return line
+                    content = '\n'.join(clean_table_line(l) for l in content.split('\n'))
+                    content = re.sub(r'---', '', content)
+                    content = re.sub(r'\n{3,}', '\n\n', content)
+                    preview = content[:200].strip() + '...' if len(content) > 200 else content.strip()
+                    lines.append(f"\n{r.message}:\n{preview}")
+                lines.append("\n\n您想了解哪方面的详情？如：「3月全员大会说了什么」「技术同步会有什么决议」「有哪些在研项目」")
                 return self._format_kb_result("\n".join(lines), "会议纪要")
 
         # 通用搜索
@@ -547,14 +638,32 @@ class AnswerGenerator:
             else:
                 return self._format_error(result.message, result.source)
 
-        # T10: 模糊问题
+        # T10: 模糊问题 - 追问澄清或返回最近会议/项目
         if any(kw in query for kw in ['最近', '有什么事', '事项']):
             events = self.kb.get_recent_events()
             if events:
                 lines = ["根据近期会议纪要，重要事项如下："]
                 for e in events:
-                    lines.append(f"\n{e.message}：\n{e.content[:200]}")
-                return self._format_kb_result("\n".join(lines), "会议纪要")
+                    # 清理 markdown 格式
+                    content = e.content
+                    # 处理 **text:** 或 **text** 模式
+                    content = re.sub(r'\*\*(.*?)\*\*:', r'\1:', content)  # **CEO**: -> CEO:
+                    content = re.sub(r'\*\*(.*?)\*\*', r'\1', content)        # **text** -> text
+                    content = re.sub(r'\*(.*?)\*', r'\1', content)           # *italic* -> italic
+                    content = re.sub(r'^#+\s*', '', content, flags=re.MULTILINE)  # ### headings
+                    content = re.sub(r'\|(.*?)\|', lambda m: m.group(1).replace('|', ' '), content)  # tables
+                    content = re.sub(r'---', '', content)                      # horizontal rules
+                    content = re.sub(r'\n{3,}', '\n\n', content)             # multiple newlines
+                    # 截取关键内容
+                    preview = content[:400].strip() + '...' if len(content) > 400 else content.strip()
+                    lines.append(f"\n【{e.source}】\n{preview}")
+                lines.append("\n\n您想了解哪方面的详情？如：「3月全员大会说了什么」「技术同步会有什么决议」「有哪些在研项目」")
+                return "\n".join(lines)
+            else:
+                return self._format_error(
+                    "近期没有找到重要会议纪要或项目动态。\n您可以尝试：\n- 询问具体员工信息（如：张三的部门）\n- 询问公司制度（如：年假怎么算）\n- 询问项目情况（如：有哪些在研项目）",
+                    "knowledge_base"
+                )
 
         # T12: 无法回答的问题
         return self._format_error(

@@ -1,0 +1,18 @@
+# 企业智能问答助手配置文件
+
+# 数据库配置
+database:
+  type: sqlite
+  path: ./enterprise.db
+
+# 知识库配置
+knowledge_base:
+  root_path: ../enterprise-qa-data/knowledge
+  index_type: bm25
+
+# 时区设置
+timezone: Asia/Shanghai
+
+# 日志配置
+logging:
+  level: INFO

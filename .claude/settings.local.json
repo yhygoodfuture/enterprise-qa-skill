@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mvn compile:*)",
+      "Bash(./mvnw compile:*)",
+      "Bash(bash init_db.sh)",
+      "Bash(python -m pytest tests/ -v --tb=short)",
+      "Bash(python -m pytest tests/test_enterprise_qa.py -v --tb=short)",
+      "Bash(python:*)",
+      "Bash(python -c \":*)",
+      "Bash(PYTHONIOENCODING=utf-8 python -m src.main \"张三的部门是什么？\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -m src.main \"年假怎么计算？\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -m src.main \"王五符合P5晋升P6条件吗？\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -m src.main \"研发部有多少人？\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -m src.main \"张三2月迟到几次？\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -m src.main \"李四的上级是谁？\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -m src.main \"迟到几次开始扣钱？\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -m src.main \"迟到扣款\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -m src.main \"张三项目\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -m src.main \"王五晋升\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -m src.main \"查一下 EMP-999\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -m src.main \"不存在员工\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -m src.main \"张三\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -m src.main \"张三的部门\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -m src.main \"张三负责哪些项目？\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -m src.main \"1'' OR ''1''=''1\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -m src.main \"量子计算最新进展\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -m pytest tests/test_enterprise_qa.py -v --tb=short)",
+      "Bash(sqlite3 enterprise.db \"SELECT department, COUNT\\(*\\) as cnt FROM employees WHERE status=''active'' GROUP BY department;\")",
+      "Bash(sqlite3 enterprise.db \"SELECT p.name, pm.role FROM project_members pm JOIN projects p ON pm.project_id = p.project_id WHERE pm.employee_id = ''EMP-001'';\")",
+      "Bash(sqlite3 enterprise.db \"SELECT COUNT\\(*\\) FROM attendance WHERE employee_id=''EMP-001'' AND status=''late'' AND date LIKE ''2026-02-%'';\")",
+      "Bash(sqlite3 enterprise.db \"SELECT AVG\\(kpi_score\\) FROM performance_reviews WHERE employee_id=''EMP-003'';\")",
+      "Bash(find E:/MySelfJavaAiProjectStudy/AiAgentDemo-J/.claude/skills/enterprise-qa/ -type f ! -path *__pycache__* ! -path *.pytest_cache* ! -name *.pyc)",
+      "Bash(cd:*)",
+      "Bash(PYTHONIOENCODING=utf-8 python -m src.main \"年假怎么算？\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -m src.main \"张三的邮箱是多少？\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -m src.main \"年假计算规则是什么\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -m src.main \"王五可以晋升吗？\")",
+      "Bash(sqlite3 \"E:/MySelfJavaAiProjectStudy/AiAgentDemo-J/enterprise-qa-data/enterprise.db\" \"SELECT COUNT\\(*\\) as员工数 FROM employees; SELECT COUNT\\(*\\) as项目数 FROM projects;\")"
+    ]
+  }
+}

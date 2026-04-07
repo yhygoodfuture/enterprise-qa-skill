@@ -1,0 +1,20 @@
+# 企业智能问答助手 - Python依赖
+# Enterprise QA Assistant - Python Dependencies
+
+# 核心依赖
+# 无外部依赖，使用Python标准库
+# - sqlite3: 内置
+# - re: 内置
+# - pathlib: 内置
+# - dataclasses: 内置
+# - enum: 内置
+# - datetime: 内置
+
+# 测试依赖
+pytest>=7.0.0
+
+# 可选：YAML配置支持
+pyyaml>=6.0
+
+# 可选：类型检查
+pytest>=7.0.0
